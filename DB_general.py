@@ -1220,12 +1220,16 @@ def update_issues(data):
         #Creation of "Path" column for easier identification
         tmp_db = db_data[db_data.CONTAINERTYPE != 4]
         for_path = np.array(tmp_db[['TREEELEMID', 'PARENTID', 'NAME', 'CONTAINERTYPE', 'BRANCHLEVEL']])
-        pathdf = define_path(for_path)
+        #Here we need to try to define path. It can be unsuccessfull for many reasons
+        try:
+            pathdf = define_path(for_path)
+        except Exception as e:
+            print(e)
+            pathdf = pd.DataFrame(columns= ['TREEELEMID', 'Path'])
         db_data = pd.merge(db_data, pathdf[['TREEELEMID', 'Path']], how = 'left', on = 'TREEELEMID')
         for asset in db_data.loc[db_data.CONTAINERTYPE == 3, 'TREEELEMID']:
             db_data.loc[db_data.PARENTID == asset, 'Path'] = db_data.loc[db_data.TREEELEMID == asset, 'Path'].item()
         db_data.loc[db_data.CONTAINERTYPE == 4,'Path'] = db_data.loc[db_data.CONTAINERTYPE == 4,'Path'] + '/' + db_data.loc[db_data.CONTAINERTYPE == 4,'NAME']
-        print('Path Defined')
 
         #Creating Clear identification of disabled points
         assets = db_data.loc[db_data.CONTAINERTYPE == 3, ['TREEELEMID', 'PARENTID', 'FilterKey']]
@@ -1402,13 +1406,19 @@ def update_issues(data):
         # Defining Name/Settings discrepancies
         db_data = db_data[db_data.DADType != 792]
         points_w_good_names = db_data[db_data.NAME.isin(names_issues['good_names'])]
-        location = pd.DataFrame(check_location(treelem=points_w_good_names))
-        orientation = pd.DataFrame(check_orientation(treelem=points_w_good_names))
-        type = pd.DataFrame(check_type_enveleope(treelem=points_w_good_names))
-        resulted = pd.merge(location, orientation, on = ['TREEELEMID', 'NAME', 'Path'], how  = 'outer')
-        resulted = pd.merge(resulted, type, on = ['TREEELEMID', 'NAME', 'Path'], how  = 'outer')
+        try:
+            location = pd.DataFrame(check_location(treelem=points_w_good_names))
+            orientation = pd.DataFrame(check_orientation(treelem=points_w_good_names))
+            type = pd.DataFrame(check_type_enveleope(treelem=points_w_good_names))
+            resulted = pd.merge(location, orientation, on = ['TREEELEMID', 'NAME', 'Path'], how  = 'outer')
+            resulted = pd.merge(resulted, type, on = ['TREEELEMID', 'NAME', 'Path'], how  = 'outer')
+            resulted = suggest_settings(resulted)
+        except Exception as e:
+            print(e)
+            resulted = pd.DataFrame(columns=['NAME', 'Location', 'Orientation', 'Type', 'Envelope',
+            'Location_sgst', 'Orientation_sgst', 'Envelope_sgst', 'Path'])
 
-        resulted = suggest_settings(resulted)
+        
         # Counting unique problems
         gen_df1 = pd.DataFrame()
         for unique_name in resulted['NAME'].unique():
