@@ -10,6 +10,132 @@ from dash.dependencies import Input, Output
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from DB_validation import *
+
+import logging
+import json
+import os
+import requests
+import re
+import time
+from datetime import datetime
+import pandas as pd
+import numpy as np
+from getpass import getpass
+#from progress.bar import IncrementalBar
+from tqdm import tqdm
+import numba
+from numba import jit
+
+
+# SPecial function for token retrieving, or saving in case it's valid
+# Logic for token retrievement should be as follows:
+# User input: Login and Password
+# Also for different API its necessary to provide endpoint, however I think 
+# that token should be valid for all services. NEED  TO CHECK.
+
+
+# Endpoint for SAM reports: https://repcenter.skf.com/rest2/sam_reports/api/Authentication
+# Endpoint for Measurements: https://repcenter.skf.com/rest/mhv/api/v1/Authorization/login
+#logging.basicConfig(filename = 'tokenlog.log',
+#                    format = '%(asctime)s:%(levelname)s -%(name)s - %(message)s', 
+#                    level = logging.INFO)
+
+# Script can be used for Authentification on both
+def retrieveTokenAnalyst(username = 'user1',
+                         password = 'password',
+                         API = 'measurements',
+                         logger_name = ''): 
+    # Setting proper logger
+    logger = logging.getLogger(logger_name)
+    
+    # Definition of the endpoints for Anlyst API
+    if API == 'SAM':
+        endpoint = 'https://repcenter.skf.com/rest2/sam_reports/api/Authentication'
+    elif API == 'measurements':
+        endpoint = 'https://repcenter.skf.com/rest/mhv/api/v1/Authorization/login'
+    else:
+        print('Select proper API. possible options are: SAM or measurements')
+        logger.warning(f'No valid API selected. Was selected {API} while proper options are: SAM or measurements')
+    
+    # If user didn't provide password in call to function we are asking to provide
+    if password == 'password':
+        password = getpass()
+    
+    # Necessary details for POST request
+    auth_details = {'username': username, 'password': password}
+    header = {'accept': 'text/plain', 'Content-Type': 'application/json'}
+    
+    # Request
+    auth_req = requests.post(endpoint, headers = header, data = json.dumps(auth_details))
+    
+    # Recieved results in case of successful or unsuccessfull request
+    if auth_req.status_code == 200:
+        # We need to document succesfull attemt in logger
+        # we need to retrieve information about token and expiration date
+        token = auth_req.json()['token']
+        exp_date = auth_req.json()['tokenExpireAt']
+        logger.info(f'Token recieved successfully. Expiration date: {exp_date}')
+        return {'token': token, 'exp_date': exp_date}
+    else:
+        status = auth_req.status_code
+        logger.warning(f'Token has NOT recieved. Status of request: {status}. Response: {auth_req.content}')
+        response = json.dumps(auth_req.json())
+        
+        return {'token': None, 'exp_date': None}
+
+def getListOfPointsAnalyst(customer = 'customer', 
+                           token = {},
+                           username = 'user1',
+                           password = 'password',
+                           pageSize = 5000, 
+                           pageNumber = 1,
+                           logger_name = ''):
+    # Setting proper logger
+    logger = logging.getLogger(logger_name)
+    
+    logger.info('Getting ANALYST list of points')
+    
+    # Checking for input variables.
+    if customer == 'customer':
+        logger.warning('No inforation about customer provided. Unable to retrieve information from ANALYST without customer name')
+        return None
+    if bool(token) == False and (password == 'password' or username == 'user1'):
+        logger.warning(f'It\'s necessary to provide token or credentials for token retrievement. No information about credentialsand/or token is provided')
+        return None
+    
+    # Retrieving token if it wasn't provided
+    if bool(token) == False:
+        logger.info('No token was provided. Trying to retrieve token from Auth service.')
+        token = retrieveTokenAnalyst(username = username, password = password)
+    if token == None:
+        logger.error('Token retrieving was unsuccessful. Impossible to retrieve list of points from ANALYST')
+        return None
+        
+    endpoint = f'https://repcenter.skf.com/rest/mhv/api/v1/{customer}/Points/details?pageSize={pageSize}&pageNumber={pageNumber}'
+    auth_token = f'Bearer {token["token"]}'
+    header = {'accept': 'text/plain', 'Authorization': auth_token}
+    
+    list_of_points_req = requests.get(endpoint, headers = header)
+    
+    
+    if list_of_points_req.status_code == 200:
+        list_of_points = pd.DataFrame(list_of_points_req.json()['results'])
+        list_of_points['presented_in_measurement_points'] = True
+        if list_of_points_req.json()['pageCount'] > 1:
+            logger.info(f"API answer contains more than one page. Will request for {list_of_points_req.json()['pageCount'] - 1} additional pages.")
+            for page in range(2, list_of_points_req.json()['pageCount'] + 1):
+                pageNumber = page
+                endpoint = f'https://repcenter.skf.com/rest/mhv/api/v1/{customer}/Points/details?pageSize={pageSize}&pageNumber={pageNumber}'
+                list_of_points_req = requests.get(endpoint, headers = header)
+                list_of_points = pd.concat([list_of_points, pd.DataFrame(list_of_points_req.json()['results'])])
+                logger.info(f'Page {pageNumber} was received')
+        
+        return list_of_points
+    else:
+        logger.error(f'Something went wrong. Request status: {list_of_points_req.status_code}.')
+        return None
+    
+
 #Determination of executable path and creating path to cust_table excel file and data files
 path_dir = os.path.dirname(sys.executable)
 path_dir = path_dir.replace(os.sep, '/')
