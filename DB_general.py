@@ -1,8 +1,11 @@
 import os
+import json
 import numpy as np
 import pandas as pd
 import sys
 import plotly.express as px
+import logging
+import json_log_formatter
 import dash
 from dash import no_update, dcc, html
 from dash import dash_table as dt
@@ -510,11 +513,11 @@ def db_stat(treelem = pd.DataFrame(),
     #Creating clear identification for disabled points
     for fl in fls.TREEELEMID:
         if treelem.loc[treelem.TREEELEMID == fl, 'ELEMENTENABLE'].item() == 0:
-            log.warning(f'FL with ID {fl} completely disabled. All assets and mp indide it will be marked and counted as disabled.')
+            log.warning(f'All assets inside FL will be marked and counted as disabled.', extra= {'type of node': 'FL', 'Node ID': fl, 'disability status': 'disabled'})
             treelem.loc[treelem.PARENTID == fl, 'ELEMENTENABLE'] = 0
     for asset in assets.TREEELEMID:
         if treelem.loc[treelem.TREEELEMID == asset, 'ELEMENTENABLE'].item() == 0:
-            log.warning(f'Asset with ID {asset} completely disabled all mp inside will be marked and counted as disabled.')
+            log.warning(f'All mp inside asset will be marked and counted as disabled.', extra = {'type of node': 'Asset', 'Node ID': asset, 'disability status': 'disabled'})
             treelem.loc[treelem.PARENTID == asset, 'ELEMENTENABLE'] = 0
 
     n_dis_mp = len(treelem[(treelem.CONTAINERTYPE == 4) & (treelem.ELEMENTENABLE == 0)])
@@ -526,6 +529,11 @@ def db_stat(treelem = pd.DataFrame(),
     mask_disfl = (treelem.TREEELEMID.isin(fl_id))&(treelem.ELEMENTENABLE == 0) 
     n_dis_fl = len(treelem[mask_disfl])
     n_dis_fl_perc = round(n_dis_fl/n_fl*100, 2)
+
+    if n_dis_mp > 0:
+        log.info('Customer has disabled nodes', extra= {'disabled_mp': n_dis_mp, 'disabled_assets': n_dis_assets, 'disabled_fl': n_dis_fl})
+    else:
+        log.info('Customer doesn\'t have disabled assets')
     
     #FilterKey Statistics
     filter_key_stat = treelem.loc[treelem.CONTAINERTYPE == 3, 'FilterKey'].value_counts(dropna=False)
@@ -611,7 +619,7 @@ def check_type_enveleope(treelem = pd.DataFrame(),
     log = logging.getLogger(logger)
        
     # Validation of the input
-    if not validate_treelems(treelem, logger):
+    if not validate_treelems(treelem, log):
         return None
     
     #Retrieving Points 
@@ -673,7 +681,8 @@ def check_type_enveleope(treelem = pd.DataFrame(),
 #More efficient code with numpy arrays.
 # Think about creating hierarchy for max asset levels. That can help with performance issues, especially for very big customers.
 # The idea is to create path for assets and for measurement points just add path to specific asset.
-def define_path(data):
+def define_path(data, logger = ''):
+    log = logging.getLogger(logger)
     path = [[x] for x in data[:, 2]]
     levels = np.unique(data[:, 4])
     data = np.insert(data, 5, '', axis =1)
@@ -688,7 +697,7 @@ def define_path(data):
             try:
                 data[data[:, 0] == element, 5] = parent_path + "/" + element_name
             except:
-                print(parent_id, element_name, element)
+                log.warning('unable to update path', extra={'element_name': element_name, 'element_id': element, 'parent_id': parent_id})
                 pass
     data = pd.DataFrame(data)
     data.columns = ['TREEELEMID', 'PARENTID', 'NAME', 'CONTAINERTYPE', 'BRANCHLEVEL', 'Path']
@@ -989,11 +998,28 @@ def suggest_settings(resulted_table = pd.DataFrame(),
             
     return resulted_table
 
+#Setting up a logger in order to be able to save logs in json 
+# and transfer them to datadog
+formatter = json_log_formatter.JSONFormatter()
+#Specify where to store the logs
+os.makedirs('C:/var/log/', exist_ok= True)
+json_handler = logging.FileHandler(filename = '/var/log/my-log.json')
+json_handler.setFormatter(formatter)
+#Creating the name of the logger
+log_name = 'my_json_log'
+logger = logging.getLogger(log_name)
+logger.addHandler(json_handler)
+logger.setLevel(logging.INFO)
+
+logger.warning('Here is some warning here', extra={'additional information:': 1256})
+
 #Determination of executable path and creating path to cust_table excel file and data files
-path_dir = os.path.dirname(sys.executable)
+path_dir = os.path.dirname(os.__file__)
 path_dir = path_dir.replace(os.sep, '/')
+path_dir = 'C:/Users/krama/Documents/work/SKF/Vibration - Analyst/Scripts/Customers DB validation'
 path_data = path_dir + '/data/'
 # Reading excel file and creating a list of options for dropdown menu
+# These lines should be modified in order to get information from SharePoint
 cust_details = pd.read_excel(path_data + 'cust_details.xlsx')
 options_c = []
 for cust in cust_details.customer:
@@ -1134,8 +1160,9 @@ def update_stat(selected_file):
         tblset = 'TablsetId: ' + str(cust_details.loc[cust_details.short_name == selected_file, 'tablesetID'].item())
         #2. Nodes statistics
         try:
-            stat = db_stat(treelem = data_db)
+            stat = db_stat(treelem = data_db, logger=log_name)
         except:
+            # Final words regardnig problems in stat calculation
             print('Something wrong with statistics calculation')
             raise PreventUpdate
         if stat == None:
