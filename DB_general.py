@@ -1,5 +1,4 @@
 import os
-import json
 import numpy as np
 import pandas as pd
 import sys
@@ -7,6 +6,7 @@ import plotly.express as px
 import logging
 import json_log_formatter
 import dash
+import uuid
 from dash import no_update, dcc, html
 from dash import dash_table as dt
 from dash.dependencies import Input, Output
@@ -28,17 +28,23 @@ def check_names(mp_names = [], logger = ''):
     regex_vibr = '^((MA)|(MI)|(ME)|(OS)|(TO)|(DV)|(OI))?( |^)\d{2}(A|H|V|R)(A|T|V|S|B|P|G|D|(E1)|(E2)|(E3)|(E4)) ?.*? ?((DE)|(NDE))? ?(.{1,})?$'
     r = re.compile(regex_vibr)
     good_list = list(filter(r.match, mp_names))
-    log.info(f'Among {len(mp_names)} unique names, {len(good_list)} names with good patter for vibration points.')
+    log.info('Names checked for vibration patterns.', extra={'point_names': good_list})
     first_rejected = list(set(mp_names) - set(good_list))
-    log.info(f'{len(first_rejected)} unique names have patetrn that are different from vibration points')
+    if len(first_rejected) > 0:
+        log.warning('DB contains names with wrong naming conventions', extra= {'checked_list': mp_names, 'wrong_names': first_rejected})
+    else:
+        log.info('All points have names according naming conventions')
     
     # Checking for MI SIT
     regex_misit = 'M(I|A) SIT'
     r_sit = re.compile(regex_misit)
     misit_list = list(filter(r_sit.match, first_rejected))
-    log.info(f'Among {len(first_rejected)} unique names, {len(misit_list)} names with paterrns MI SIT/MA SIT')
+    log.info('Names checked for SIT points patterns', extra={'point_names': misit_list})
     second_rejected = list(set(first_rejected) - set(misit_list))
-    log.info(f'{len(second_rejected)} unique names has pattern that are not vibrationa and not MI|A SIT')
+    if len(second_rejected)>0:
+        log.warning('DB contains SIT points', extra= {'checked_list': first_rejected, 'wrong_names': second_rejected})
+    else:
+        log.info('DB doesn\'t contain SIT points')
     
     #Checking for points that are 01S Manual entry REP
     regex_manentry = '[0-9]{2}S [Mm]anual [Ee]ntry'
@@ -619,7 +625,7 @@ def check_type_enveleope(treelem = pd.DataFrame(),
     log = logging.getLogger(logger)
        
     # Validation of the input
-    if not validate_treelems(treelem, log):
+    if not validate_treelems(treelem, logger):
         return None
     
     #Retrieving Points 
@@ -1003,10 +1009,10 @@ def suggest_settings(resulted_table = pd.DataFrame(),
 formatter = json_log_formatter.JSONFormatter()
 #Specify where to store the logs
 os.makedirs('C:/var/log/', exist_ok= True)
-json_handler = logging.FileHandler(filename = '/var/log/my-log.json')
+log_name = str(uuid.uuid4())
+json_handler = logging.FileHandler(filename = '/var/log/'+ log_name +'.json')
 json_handler.setFormatter(formatter)
 #Creating the name of the logger
-log_name = 'my_json_log'
 logger = logging.getLogger(log_name)
 logger.addHandler(json_handler)
 logger.setLevel(logging.INFO)
@@ -1026,6 +1032,17 @@ for cust in cust_details.customer:
     label = cust_details.loc[cust_details.customer == cust, "customer"].item()
     value = cust_details.loc[cust_details.customer == cust, "short_name"].item()
     options_c.append({'label': label, 'value': value})
+info_wrong_convention = """
+The table presented informtion about the measurement points\nwith wrong naming conventions.\n
+Names presented in the table represent only unique names.\nNumber of times wrong name appeared in the DB prsented\nin column "N occurencies".
+Each column of the tabl has its own filter where it's\npossible to search for specific name/value in a column. 
+"""
+info_name_settings = """
+The table represents measurement points where settings\nof the point don't correspond with the name of the point.\nNames presented in the table represent only unique names.\nNumber of times wrong name appeared in the DB prsented\nin column "N occurencies". If few points has same name\nbu different settings all the settings will be presented\nin current settings column.
+Since Location and Orientation are the most frequent\nproblems but not the worst one toggle "Show only major\nissues" will display only points with envelope\nfilter or when the type of the point doesn't match to\nthe name of the point.
+Each column of the tabl has its own filter where it's\npossible to search for specific name/value in a column.
+"""
+
 
 app = dash.Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.layout = html.Div([
@@ -1068,10 +1085,10 @@ app.layout = html.Div([
                     dcc.Tabs([
                             dcc.Tab([
                                 html.Br(),
-                                html.H6('Points with the names which are not according to the naming conventions:'),
+                                html.Div([html.H6('Points with the names which are not according to the naming conventions: '), html.Abbr(u"\U0001F6C8", title=info_wrong_convention)], style={'display': 'inline-flex'}),
                                 html.Div([], id = 'names-issues')], label = 'Names Issues', value='names-tab'),
                             dcc.Tab([html.Br(), 
-                                html.H6('Points with discrepancies between names and settings'),
+                                html.Div([html.H6('Points with discrepancies between names and settings'), html.Abbr(u"\U0001F6C8", title=info_name_settings)], style={'display': 'inline-flex'}),
                                 dbc.Checklist(
                                      options=[
                                             {"label": "Show only major issues", "value": 1}
@@ -1186,12 +1203,11 @@ def update_stat(selected_file):
         names_hist = pd.DataFrame(stat['names_stat'])
         name_plot = px.bar(y = names_hist.index, 
                         x = names_hist.NAME, 
-                        orientation='h', 
-                        title='MP names in DB', 
-                        labels = {'x': 'Number of occurencies in DB', 'y': 'MP name'}, 
+                        orientation='h',  
+                        labels = {'x': 'Number of MP\'s name occurencies in DB', 'y': 'Name of MP in DB'}, 
                         height=20*len(names_hist))
         name_plot.update_layout(yaxis= {'categoryorder': 'total ascending'},
-                                title_x = 0.5)
+                                xaxis = {'side': 'top', 'mirror': 'allticks'})
         names_plot = html.Div(dcc.Graph(figure = name_plot, style= {'height': 20*len(names_hist)}), style={'overflowY': 'scroll', 'height': 700, 'width': '100%'})
         #Dad types stat
         dad_pie_df = pd.DataFrame(stat['DAD'])
@@ -1277,11 +1293,11 @@ def update_issues(data):
 
         # Defining names problems
         names= list(set(db_data.loc[db_data.CONTAINERTYPE == 4, 'NAME']))
-        names_issues = check_names(mp_names=names)
+        names_issues = check_names(mp_names=names, logger=log_name)
         if len(names_issues['wrong_names']) == 0:
             names_table = html.Div('There were no issues with the names for the customer')
         else:
-            problems = define_names_problems(wrong_names = names_issues['wrong_names'])
+            problems = define_names_problems(wrong_names = names_issues['wrong_names'], logger=log_name)
             mask1 = (db_data.CONTAINERTYPE == 4) & (db_data.NAME.isin(names_issues['wrong_names']))
             wrong_names_table = db_data.loc[ mask1, ['TREEELEMID', 'NAME', 'Path', 'FilterKey', 'PointLocation', 'PointOrientation', 'PointUnitType', 'FilterEnvelope', 'AssetType']]
             wrong_names_table.FilterEnvelope = ['E'+str(int(x) - 20599) if x in [20600, 20601, 20602, 20603] else '' for x in wrong_names_table.FilterEnvelope]
@@ -1433,17 +1449,17 @@ def update_issues(data):
         # Defining Name/Settings discrepancies
         db_data = db_data[db_data.DADType != 792]
         points_w_good_names = db_data[db_data.NAME.isin(names_issues['good_names'])]
-        try:
-            location = pd.DataFrame(check_location(treelem=points_w_good_names))
-            orientation = pd.DataFrame(check_orientation(treelem=points_w_good_names))
-            type = pd.DataFrame(check_type_enveleope(treelem=points_w_good_names))
-            resulted = pd.merge(location, orientation, on = ['TREEELEMID', 'NAME', 'Path'], how  = 'outer')
-            resulted = pd.merge(resulted, type, on = ['TREEELEMID', 'NAME', 'Path'], how  = 'outer')
-            resulted = suggest_settings(resulted)
-        except Exception as e:
-            print(e)
-            resulted = pd.DataFrame(columns=['NAME', 'Location', 'Orientation', 'Type', 'Envelope',
-            'Location_sgst', 'Orientation_sgst', 'Envelope_sgst', 'Path'])
+        #try:
+        location = pd.DataFrame(check_location(treelem=points_w_good_names))
+        orientation = pd.DataFrame(check_orientation(treelem=points_w_good_names))
+        type = pd.DataFrame(check_type_enveleope(treelem=points_w_good_names))
+        resulted = pd.merge(location, orientation, on = ['TREEELEMID', 'NAME', 'Path'], how  = 'outer')
+        resulted = pd.merge(resulted, type, on = ['TREEELEMID', 'NAME', 'Path'], how  = 'outer')
+        resulted = suggest_settings(resulted)
+        #except Exception as e:
+        #    print(e)
+        #    resulted = pd.DataFrame(columns=['NAME', 'Location', 'Orientation', 'Type', 'Envelope',
+        #    'Location_sgst', 'Orientation_sgst', 'Envelope_sgst', 'Path'])
 
         
         # Counting unique problems
@@ -1506,7 +1522,7 @@ def update_issues(data):
                 'Path': path_example
             }, index = [0])
             gen_df1 = pd.concat([gen_df1, res_tmp])
-            
+
         gen_df1.sort_values('N occurencies', ascending= False, inplace = True)
         gen_df1.reset_index(drop = True, inplace = True)
 
