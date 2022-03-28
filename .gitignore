@@ -46,3 +46,7 @@ Thumbs.db
 *.docx
 *.xlsx
 requirements.txt
+PerformanceCheck.ipynb
+stats.dot
+stats.profile
+.gitignore
