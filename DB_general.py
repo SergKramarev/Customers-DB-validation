@@ -7,6 +7,8 @@ import logging
 import json_log_formatter
 import dash
 import uuid
+import numba
+from numba import jit
 from dash import no_update, dcc, html
 from dash import dash_table as dt
 from dash.dependencies import Input, Output
@@ -397,6 +399,24 @@ def validate_treelems(tree_df = pd.DataFrame(),
     
     return validated
    
+@jit(nopython = True)
+def checkTh(data):
+    result = []
+    for i in range(data.shape[0]):
+        enabled = []
+        if data[i,5] != 0:
+            enabled.append(data[i, 1])
+        if data[i,6] != 0:
+            enabled.append(data[i, 2])
+        if data[i,7] != 0:
+            enabled.append(data[i, 3])
+        if data[i,8] != 0:
+            enabled.append(data[i, 4])
+        if enabled != sorted(enabled):
+            result.append(data[i, 0])
+    return result
+
+
 def check_thresholds(treelem = pd.DataFrame(), 
                     logger = ''):
     # Setting logger
@@ -414,17 +434,17 @@ def check_thresholds(treelem = pd.DataFrame(),
     #Checking if the thresholds are in correct sequence
     tmp_df = treelem[~treelem.SCALARALRMID.isna()]
     tmp_df.reset_index(drop = True, inplace = True)
-    
-    results_thresh = {'wrong_alarms': []}
-    #Analysing 
-    for i in range(len(tmp_df)):
-        alarms = list(tmp_df.loc[i, ['DANGERLO', 'ALERTLO', 'ALERTHI', 'DANGERHI']])
-        enabled = list(tmp_df.loc[i, ['ENABLEDANGERLO', 'ENABLEALERTLO', 'ENABLEALERTHI', 'ENABLEDANGERHI']])
-        enabled_alarms = [x for y, x in enumerate(alarms) if enabled[y] != 0]
-        good_alarms = all(enabled_alarms[i] < enabled_alarms[i+1] for i in range(len(enabled_alarms) - 1))
-        if not good_alarms:
-            results_thresh['wrong_alarms'].append(tmp_df.loc[i, 'TREEELEMID'])
-            log.warning(f'MP with ID {tmp_df.loc[i, "TREEELEMID"]} has a wrong thresholds set.')
+
+    thresh_array = tmp_df[['TREEELEMID', 'DANGERLO',
+                           'ALERTLO', 'ALERTHI', 'DANGERHI',
+                           'ENABLEDANGERLO', 'ENABLEALERTLO',
+                           'ENABLEALERTHI', 'ENABLEDANGERHI']]
+    thresh_array.TREEELEMID = pd.to_numeric(thresh_array.TREEELEMID)
+    thresh_array = np.array(thresh_array)
+
+    wrong_th = checkTh(thresh_array)
+    wrong_th = [str(x) for x in wrong_th]
+    results_thresh = {'wrong_alarms': wrong_th}
 
     wrong_alarms = treelem.loc[treelem.TREEELEMID.isin(results_thresh['wrong_alarms']), ['TREEELEMID', 'NAME', 'Path']]   
     return {'threshold_issues': wrong_alarms,
@@ -1832,7 +1852,7 @@ def filter_table(table_data, switcher):
     else:
         table_data = pd.DataFrame(table_data)
         if len(switcher) == 1:
-            table_data = table_data[~table_data.Type.isna() & ~table_data.Envelope.isna()]
+            table_data = table_data[~table_data.Type.isna() + ~table_data.Envelope.isna()]
         print(len(switcher) == 1)
         settings_table =  dt.DataTable(
             id='settings-table', 
