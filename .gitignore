@@ -50,3 +50,4 @@ PerformanceCheck.ipynb
 stats.dot
 stats.profile
 .gitignore
+SQL credentials.txt

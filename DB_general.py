@@ -7,7 +7,6 @@ import logging
 import json_log_formatter
 import dash
 import uuid
-import numba
 from numba import jit
 from dash import no_update, dcc, html
 from dash import dash_table as dt
