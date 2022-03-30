@@ -582,7 +582,7 @@ def db_stat(treelem = pd.DataFrame(),
         792: 'Derived Point',
         1159: 'Manual Point'}
     DAD_types = treelem.loc[treelem.CONTAINERTYPE == 4, ['DADType', 'TREEELEMID']]
-    DAD_types['DADType'] = [dad_map[x] if x in dad_map.keys() else x for x in DAD_types['DADType']]
+    #DAD_types['DADType'] = [dad_map[x] if x in dad_map.keys() else x for x in DAD_types['DADType']]
     DAD_types.set_index('TREEELEMID', inplace = True)
     DAD_types = DAD_types['DADType'].value_counts(dropna = False)
     # Need to add mapping to DAD types in order to present not values but Names of the DAD
@@ -1175,7 +1175,7 @@ def update_stat(selected_file):
         #Instead of following lines here we can have a function which will send a request to SQL db
         try:
             filename = cust_details.loc[cust_details.short_name == selected_file, 'datafile'].item()
-            data_db = pd.read_csv(path_data + filename)
+            data_db = pd.read_csv(path_data + filename, sep=';')
         except:
             #Need to have some wrror messages here, but only prevent update for now
             cust = 'Customer name: Unable to get the data for customer'
@@ -1483,67 +1483,74 @@ def update_issues(data):
         
         # Counting unique problems
         gen_df1 = pd.DataFrame()
-        for unique_name in resulted['NAME'].unique():
-            tmp_df1 = resulted[resulted['NAME'] == unique_name]
-            tmp_df1.reset_index(inplace = True, drop = True)
-            counter = len(tmp_df1)
-            loc_uniq = list(tmp_df1['Location'].unique())
-            if len(loc_uniq) > 1:
-                loc_uniq = [str(x) for x in loc_uniq]
-                loc_uniq = ', '.join(loc_uniq)
-            else:
-                loc_uniq = loc_uniq[0]
-            orient_uniq = tmp_df1['Orientation'].unique()
-            if len(orient_uniq) > 1:
-                orient_uniq = [str(x) for x in orient_uniq]
-                orient_uniq = ', '.join(orient_uniq)
-            else:
-                orient_uniq = orient_uniq[0]
-            unit_uniq = tmp_df1['Type'].unique()
-            if len(unit_uniq) > 1:
-                unit_uniq = [str(x) for x in unit_uniq]
-                unit_uniq = ', '.join(unit_uniq)
-            else:
-                unit_uniq = unit_uniq[0]
-            env_uniq = tmp_df1['Envelope'].unique()
-            if len(env_uniq) > 1:
-                env_uniq = [str(x) for x in env_uniq]
-                env_uniq = ', '.join(env_uniq)
-            else:
-                env_uniq = env_uniq[0]
-            
-            loc_sgst = list(tmp_df1['Location_sgst'])[0]
-            orient_sgst = list(tmp_df1['Orientation_sgst'])[0]
-            #unit_sgst = list(tmp_df1['Type_sgst'])
-            #if len(unit_sgst) == 0:
-            #    unit_sgst = None
-            #else:
-            #    unit_sgst = unit_sgst[0]
-            env_sgst = list(tmp_df1['Envelope_sgst'])
-            if len(env_sgst) == 0:
-                env_sgst = None
-            else:
-                env_sgst = env_sgst[0]
+        if len(resulted) > 0:
 
-   
-            path_example = tmp_df1.loc[0, 'Path']
-            res_tmp = pd.DataFrame({
-                'N occurencies': counter,
-                'NAME': unique_name,
-                'Location': loc_uniq,
-                'Orientation': orient_uniq,
-                'Type': unit_uniq,
-                'Envelope': env_uniq,
-                'Location_sgst': loc_sgst,
-                'Orientation_sgst': orient_sgst,
-                #'Type_sgst': unit_sgst,
-                'Envelope_sgst': env_sgst,
-                'Path': path_example
-            }, index = [0])
-            gen_df1 = pd.concat([gen_df1, res_tmp])
+            for unique_name in resulted['NAME'].unique():
+                tmp_df1 = resulted[resulted['NAME'] == unique_name]
+                tmp_df1.reset_index(inplace = True, drop = True)
+                counter = len(tmp_df1)
+                loc_uniq = list(tmp_df1['Location'].unique())
+                if len(loc_uniq) > 1:
+                    loc_uniq = [str(x) for x in loc_uniq]
+                    loc_uniq = ', '.join(loc_uniq)
+                else:
+                    loc_uniq = loc_uniq[0]
+                orient_uniq = tmp_df1['Orientation'].unique()
+                if len(orient_uniq) > 1:
+                    orient_uniq = [str(x) for x in orient_uniq]
+                    orient_uniq = ', '.join(orient_uniq)
+                else:
+                    orient_uniq = orient_uniq[0]
+                unit_uniq = tmp_df1['Type'].unique()
+                if len(unit_uniq) > 1:
+                    unit_uniq = [str(x) for x in unit_uniq]
+                    unit_uniq = ', '.join(unit_uniq)
+                else:
+                    unit_uniq = unit_uniq[0]
+                env_uniq = tmp_df1['Envelope'].unique()
+                if len(env_uniq) > 1:
+                    env_uniq = [str(x) for x in env_uniq]
+                    env_uniq = ', '.join(env_uniq)
+                else:
+                    env_uniq = env_uniq[0]
+                
+                loc_sgst = list(tmp_df1['Location_sgst'])[0]
+                orient_sgst = list(tmp_df1['Orientation_sgst'])[0]
+                #unit_sgst = list(tmp_df1['Type_sgst'])
+                #if len(unit_sgst) == 0:
+                #    unit_sgst = None
+                #else:
+                #    unit_sgst = unit_sgst[0]
+                env_sgst = list(tmp_df1['Envelope_sgst'])
+                if len(env_sgst) == 0:
+                    env_sgst = None
+                else:
+                    env_sgst = env_sgst[0]
 
-        gen_df1.sort_values('N occurencies', ascending= False, inplace = True)
-        gen_df1.reset_index(drop = True, inplace = True)
+    
+                path_example = tmp_df1.loc[0, 'Path']
+                res_tmp = pd.DataFrame({
+                    'N occurencies': counter,
+                    'NAME': unique_name,
+                    'Location': loc_uniq,
+                    'Orientation': orient_uniq,
+                    'Type': unit_uniq,
+                    'Envelope': env_uniq,
+                    'Location_sgst': loc_sgst,
+                    'Orientation_sgst': orient_sgst,
+                    #'Type_sgst': unit_sgst,
+                    'Envelope_sgst': env_sgst,
+                    'Path': path_example
+                }, index = [0])
+                gen_df1 = pd.concat([gen_df1, res_tmp])
+            print(gen_df1)
+            gen_df1.sort_values('N occurencies', ascending= False, inplace = True)
+            gen_df1.reset_index(drop = True, inplace = True)
+        else:
+            gen_df1 = pd.DataFrame(columns= ['N occurencies', 'NAME', 'Location',
+                                            'Orientation', 'Type', 'Envelope',
+                                            'Location_sgst', 'Orientation_sgst',
+                                            'Envelope_sgst', 'Path'])
 
         #Defining hierarchy problems
         dupl = check_duplications(treelem=db_data)
@@ -1761,7 +1768,7 @@ def update_issues(data):
                 'backgroundColor': 'rgb(248, 248, 248)'
             }])
         motor_wo_sit_table = html.Div([html.Br(),html.H6('Motor assets without SIT points'), motor_wo_sit_table])
-        other_w_sit = db_data.loc[db_data.TREEELEMID.isin(sit_stat['other_components_w_SIT']), ['TREEELEMID', 'FilterKey']]
+        other_w_sit = db_data.loc[db_data.TREEELEMID.isin(sit_stat['other_components_w_SIT']), ['TREEELEMID', 'FilterKey', 'Path']]
         other_w_sit_table = dt.DataTable(
             id='other-w-sit-table', 
             data = other_w_sit.to_dict('records'),
